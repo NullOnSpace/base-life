@@ -1,0 +1,18 @@
+{
+    "sources": [
+        {
+            "name": "shu-water",
+            "url": "https://www.sczlsgs.com/list/jihuatingfushuigonggao.html",
+            "selectors": {
+                "list_selector": "table.topds table td.content table td > a",
+                "title": "h1 > strong",
+                "pub": "div[align=\"center\"]:contains(\"发布日期\")",
+                "pub-format": "YYYY-mm-dd HH:MM",
+                "content": "#zoom",
+                "search": [
+                    "南溪"
+                ]
+            }
+        }
+    ]
+}
