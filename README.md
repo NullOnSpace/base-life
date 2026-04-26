@@ -1,5 +1,9 @@
 # base-life 新闻抓取
 
+[![CI](https://github.com/NullOnSpace/base-life/actions/workflows/ci.yml/badge.svg)](https://github.com/NullOnSpace/base-life/actions/workflows/ci.yml)
+[![Ruff](https://img.shields.io/badge/lint-ruff-blue)](https://docs.astral.sh/ruff/)
+[![Black](https://img.shields.io/badge/format-black-black)](https://github.com/psf/black)
+
 简单的新闻抓取器。读取项目根目录的 `config.toml`，按 `[[sources]]` 配置抓取列表页并并发获取详情页，返回结构化的 `NewsItem` 对象供后续处理或导出。
 
 ## 快速开始
