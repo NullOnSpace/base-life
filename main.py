@@ -3,8 +3,8 @@
 Reads `config.toml` and prints a JSON array of `NewsItem` objects.
 """
 
+import argparse
 import json
-import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -16,7 +16,8 @@ from base_life import scraper
 def load_config_toml(path: Path) -> Dict[str, Any]:
     """Load TOML configuration from ``path``.
 
-    Raises a :class:`ValueError` if the file cannot be read or parsed.
+    Raises :class:`tomllib.TOMLDecodeError` if the file cannot be parsed,
+    or :class:`FileNotFoundError`/:class:`OSError` if the file cannot be read.
     """
     with path.open("rb") as f:
         return tomllib.load(f)
@@ -31,7 +32,6 @@ def run(config_path: str = "config.toml") -> None:
     """
     cfg = load_config_toml(Path(config_path))
 
-    # configure logging from config if present
     log_cfg = cfg.get("logging", {}) or {}
     scraper.setup_logging(log_cfg.get("level"))
 
@@ -41,12 +41,24 @@ def run(config_path: str = "config.toml") -> None:
     for src in sources:
         search_terms = src.get("selectors", {}).get("search", [])
         items = scraper.fetch_source(src, search_terms=search_terms)
-        # items are NewsItem objects; serialize for JSON output
         all_items.extend([it.to_dict() for it in items])
 
     print(json.dumps(all_items, ensure_ascii=False, indent=2))
 
 
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="base-life news scraper – reads config.toml and outputs JSON"
+    )
+    parser.add_argument(
+        "config",
+        nargs="?",
+        default="config.toml",
+        help="Path to TOML configuration file (default: config.toml)",
+    )
+    args = parser.parse_args()
+    run(args.config)
+
+
 if __name__ == "__main__":
-    cfg_arg = sys.argv[1] if len(sys.argv) > 1 else "config.toml"
-    run(cfg_arg)
+    main()

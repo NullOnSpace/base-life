@@ -4,16 +4,16 @@
 
 ## 快速开始
 
-- 安装运行依赖（示例使用本项目虚拟环境）：
+- 安装运行依赖（使用 [uv](https://docs.astral.sh/uv/) 管理）：
 
 ```bash
-/home/hikaru/.virtualenvs/base-life/bin/python3 -m pip install -r requirements.txt
+uv sync
 ```
 
 - 运行（CLI）：
 
 ```bash
-/home/hikaru/.virtualenvs/base-life/bin/python3 main.py config.toml
+uv run python main.py config.toml
 ```
 
 ## 输出
@@ -87,7 +87,7 @@ content = "div.article-body"
 
 ```bash
 export BASE_LIFE_LOG_LEVEL=DEBUG
-/home/hikaru/.virtualenvs/base-life/bin/python3 main.py config.json
+uv run python main.py config.toml
 ```
 
 - 模块 `base_life.scraper` 提供 `setup_logging()`，调用者可直接使用以配置日志。

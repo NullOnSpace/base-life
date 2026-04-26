@@ -3,6 +3,8 @@
 
 本指南旨在确保 Python 代码符合 **flake8**（样式检查）、**black**（代码格式化）和 **pylance**（类型检查与智能提示）的要求，保持代码一致性、可读性和可维护性。
 
+项目使用 **uv** 作为包管理与任务运行工具，依赖声明集中在 `pyproject.toml`。
+
 ---
 
 ## 1. 格式化与缩进
@@ -12,14 +14,8 @@
 - 续行应使用括号、方括号或大括号内的隐式续行，并适当对齐。
 
 ```python
-# 正确
 result = some_function_that_takes_arguments(
-    'first argument', 'second argument', 'third argument'
-)
-
-# 错误（混用制表符或空格不足）
-result = some_function_that_takes_arguments(
-  'first argument', 'second argument', 'third argument'
+    "first argument", "second argument", "third argument"
 )
 ```
 
@@ -29,7 +25,7 @@ result = some_function_that_takes_arguments(
 
 ### 1.3 代码格式化
 - 使用 **black** 自动格式化，不用手动调整空格、换行等。
-- 在提交前运行 `black .` 即可。
+- 通过 uv 运行：`uv run black .`。
 
 ---
 
@@ -72,18 +68,25 @@ def top_level_function():
 - 每行一个导入（除非使用括号进行多行导入）。
 
 ```python
-# 正确
+import asyncio
+import logging
 import os
-import sys
+import re
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+from urllib.parse import urljoin
 
-import requests
-from flask import Flask
+import aiohttp
+from bs4 import BeautifulSoup
 
-from mymodule import helper
+from base_life import scraper
+```
 
-# 错误
-import os, sys
-from mymodule import *
+禁止的写法：
+```python
+import os, sys  # 多个导入在同一行
+from mymodule import *  # 星号导入
 ```
 
 ---
@@ -95,24 +98,23 @@ from mymodule import *
 | 变量          | 小写 + 下划线    | `user_name`, `total`    |
 | 常量          | 大写 + 下划线    | `MAX_SIZE`, `API_KEY`   |
 | 函数          | 小写 + 下划线    | `get_data()`, `save()`  |
-| 类            | 驼峰（CapWords） | `UserProfile`, `Client` |
+| 类            | 驼峰（CapWords） | `NewsItem`, `Client`    |
 | 私有属性/方法 | 前导下划线       | `_internal`, `_parse()` |
-| 保护属性      | 单前导下划线     | `_protected`            |
 | 魔术方法      | 双前导和双后缀   | `__init__`, `__str__`   |
 
 ```python
-class Car:
-    WHEELS = 4  # 常量
+class NewsItem:
+    DEFAULT_SOURCE = "unknown"
 
-    def __init__(self, model):
-        self.model = model
-        self._engine_status = 'off'  # 私有
+    def __init__(self, title: str) -> None:
+        self.title = title
+        self._active = True
 
-    def start(self):
-        self._ignite()
+    def activate(self) -> None:
+        self._active = True
 
-    def _ignite(self):  # 内部方法
-        pass
+    def _validate(self) -> bool:
+        return len(self.title) > 0
 ```
 
 ---
@@ -126,15 +128,10 @@ class Car:
 - 关键字参数不加空格：`func(param=1)`
 
 ```python
-# 正确
 x = (1 + 2) * 3
+
 def greet(name: str = "World"):
     return f"Hello, {name}"
-
-# 错误（Black 会纠正）
-x=(1+2)*3
-def greet(name:str="World"):
-    pass
 ```
 
 ### 5.2 比较操作
@@ -142,18 +139,10 @@ def greet(name:str="World"):
 - 避免与布尔值直接比较（`if x is True` → `if x`）。
 
 ```python
-# 正确
 if value is None:
     pass
 
 if done:
-    pass
-
-# 错误
-if value == None:
-    pass
-
-if done == True:
     pass
 ```
 
@@ -161,11 +150,7 @@ if done == True:
 - 保持简单，复杂逻辑使用普通循环。
 
 ```python
-# 可接受
 squares = [x**2 for x in range(10)]
-
-# 过于复杂（易读性差）
-result = [x for x in items if x['type'] == 'A' and x['value'] > 10 and some_condition(x)]
 ```
 
 ---
@@ -174,35 +159,26 @@ result = [x for x in items if x['type'] == 'A' and x['value'] > 10 and some_cond
 
 ### 6.1 基本类型注解
 - 为函数参数和返回值添加类型注解。
-- 使用 `from typing import ...` 提供复杂类型。
+- Python 3.12+ 可直接使用 `list[str]`、`dict[str, int]` 等泛型语法，无需从 `typing` 导入。
 
 ```python
-from typing import List, Optional, Dict
-
-def process_items(items: List[str], max_count: Optional[int] = None) -> Dict[str, int]:
+def process_items(items: list[str], max_count: int | None = None) -> dict[str, int]:
     result = {}
-    # ...
     return result
 ```
+
+- 对于复杂类型（如 `Callable`、`TypedDict`），仍需从 `typing` 导入。
 
 ### 6.2 变量注解
 - 复杂类型变量可注解以提升 Pylance 推断。
 
 ```python
-data: List[Dict[str, int]] = []
+data: list[dict[str, int]] = []
 ```
 
-### 6.3 类型别名
-```python
-UserId = int
-UserDict = Dict[str, str]
-```
-
-### 6.4 避免 `Any`（尽量明确）
-```python
-def handle(data: Any):  # 不推荐
-    pass
-```
+### 6.3 避免 `Any`（尽量明确）
+- `Any` 会绕过类型检查，仅在真正无法确定类型时使用。
+- 函数返回值包含混合类型时应使用更精确的类型（如 `dict[str, Any]`）。
 
 ---
 
@@ -210,36 +186,33 @@ def handle(data: Any):  # 不推荐
 
 ### 7.1 函数
 - 函数应短小、单一职责。
-- 参数尽量少（超过5个考虑封装为数据类或字典）。
+- 参数尽量少（超过 5 个考虑封装为 dataclass 或字典）。
 
 ```python
-# 好
 def calculate_area(length: float, width: float) -> float:
     return length * width
-
-# 避免
-def process_and_save_and_notify(data, path, email, max_retry, timeout):
-    pass
 ```
 
 ### 7.2 类
 - 遵循单一职责原则。
-- 除非必要，避免使用 `@staticmethod`。
+- 使用 `@dataclass` 定义简单数据容器。
 
 ```python
-class ReportGenerator:
-    def __init__(self, data: List[int]):
-        self.data = data
+from dataclasses import dataclass
 
-    def generate(self) -> str:
-        pass
+@dataclass
+class NewsItem:
+    source: str | None = None
+    url: str | None = None
+    title: str | None = None
+    filtered: bool = False
 ```
 
 ---
 
 ## 8. 注释与文档字符串
 
-### 8.1 文档字符串（使用 Google 或 NumPy 风格）
+### 9.1 文档字符串（Google 风格）
 ```python
 def fetch_user(user_id: int) -> dict:
     """根据用户 ID 获取用户资料。
@@ -255,10 +228,9 @@ def fetch_user(user_id: int) -> dict:
     """
     if user_id < 0:
         raise ValueError("user_id 不能为负数")
-    # ...
 ```
 
-### 8.2 行内注释
+### 9.2 行内注释
 - 仅用于解释复杂的逻辑，不要解释明显的操作。
 - 注释与代码至少两个空格分隔。
 
@@ -268,55 +240,90 @@ x = x + 1  # 补偿偏移量
 
 ---
 
-## 9. 工具配置
+## 10. 工具配置
 
-### 9.1 pyproject.toml（推荐统一配置）
+项目使用 `pyproject.toml` 作为统一配置文件，结合 **uv** 管理。
+
+### 10.1 pyproject.toml
 
 ```toml
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "base-life"
+version = "0.1.0"
+description = "Simple news scraper"
+requires-python = ">=3.12"
+dependencies = [
+    "aiohttp>=3.9,<4",
+    "beautifulsoup4>=4.12,<5",
+    "lxml>=5.0,<7",
+]
+
+[dependency-groups]
+dev = [
+    "black>=24.0",
+    "flake8>=7.0",
+]
+
 [tool.black]
 line-length = 88
-target-version = ['py39']  # 根据项目实际 Python 版本调整
+target-version = ['py312']
 
 [tool.flake8]
 max-line-length = 88
-extend-ignore = ["E203"]   # 因 black 与 flake8 对切片空格规则冲突
-
-[tool.pylance]
-# Pylance 通常通过 VS Code 设置或 pyrightconfig.json 配置
-# 以下为推送到 pyright 的配置（兼容 pylance）
-typeCheckingMode = "basic"
-reportMissingImports = true
-reportMissingTypeStubs = false
+extend-ignore = ['E203']
 ```
 
-### 9.2 可选配置文件 `.flake8`
-```ini
-[flake8]
-max-line-length = 88
-extend-ignore = E203
+### 10.2 uv 常用命令
+
+| 操作                  | 命令                             |
+| --------------------- | -------------------------------- |
+| 创建虚拟环境          | `uv venv`                        |
+| 安装项目依赖          | `uv sync`                        |
+| 添加运行依赖          | `uv add <package>`               |
+| 添加开发依赖          | `uv add --dev <package>`         |
+| 移除依赖              | `uv remove <package>`            |
+| 运行脚本              | `uv run python main.py`          |
+| 运行格式化            | `uv run black .`                 |
+| 运行 lint             | `uv run flake8 main.py base_life/` |
+| 锁定依赖              | `uv lock`（自动生成 uv.lock）    |
+
+> **注意**：flake8 默认不读取 `pyproject.toml`，需确保运行时传入 `--max-line-length=88 --extend-ignore=E203`，或创建 `.flake8` 配置文件：
+> ```ini
+> [flake8]
+> max-line-length = 88
+> extend-ignore = E203
+> ```
+
+---
+
+## 11. 检查与自动化
+
+### 11.1 提交前检查
+```bash
+uv run black .
+uv run flake8 --max-line-length=88 --extend-ignore=E203 main.py base_life/
+```
+
+### 11.2 CI 配置示例
+```yaml
+steps:
+  - name: Install uv
+    uses: astral-sh/setup-uv@v4
+  - name: Install dependencies
+    run: uv sync
+  - name: Check formatting
+    run: uv run black --check .
+  - name: Lint
+    run: uv run flake8 --max-line-length=88 --extend-ignore=E203 main.py base_life/
 ```
 
 ---
 
-## 10. 检查与自动化
-
-- **提交前运行**：
-  ```bash
-  black .
-  flake8 .
-  ```
-- **在 CI 中加入**：
-  ```yaml
-  - name: Lint with flake8
-    run: flake8 .
-  - name: Check formatting with black
-    run: black --check .
-  ```
-- 使用 **pre-commit hooks** 自动格式化。
-
----
-
-## 11. 常见错误及避免
+## 12. 常见错误及避免
 
 | flake8 代码 | 说明                    | 避免方法                 |
 | ----------- | ----------------------- | ------------------------ |
@@ -328,45 +335,53 @@ extend-ignore = E203
 
 ---
 
-## 12. 示例代码（符合全部规则）
+## 8. 异步编程规范
+
+本项目大量使用 `asyncio` 和 `aiohttp`，需遵守以下规范：
+
+### 8.1 async/await 使用
+- 所有 I/O 操作（HTTP 请求、文件读取）应使用 async 函数。
+- 同步阻塞调用不应出现在异步代码中。
+- 使用 `asyncio.gather` 并发执行多个异步任务，而非逐个 `await`。
 
 ```python
-"""用户管理模块示例。"""
+async def fetch_multiple(urls: list[str]) -> list[str]:
+    async with aiohttp.ClientSession() as session:
+        tasks = [fetch_one(session, url) for url in urls]
+        return await asyncio.gather(*tasks)
+```
 
-from typing import Dict, List, Optional
+### 8.2 并发控制
+- 使用 `asyncio.Semaphore` 限制并发数量，避免压垮目标服务器。
+- `aiohttp.TCPConnector(limit_per_host=N)` 控制每站点连接数。
 
+```python
+sem = asyncio.Semaphore(8)
+async with sem:
+    result = await fetch_one(session, url)
+```
 
-class User:
-    """用户类，存储基本信息。"""
+### 8.3 异常处理
+- 异步网络请求只捕获预期的异常：`aiohttp.ClientError`、`asyncio.TimeoutError`。
+- 禁止 `except Exception`（会吞掉所有异常，包括调试信号）。
 
-    DEFAULT_AVATAR = "default.png"
+```python
+try:
+    async with session.get(url) as resp:
+        text = await resp.text()
+except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+    logger.warning("Failed to fetch %s: %s", url, exc)
+    return None
+```
 
-    def __init__(self, user_id: int, name: str) -> None:
-        self.user_id = user_id
-        self.name = name
-        self._active = True
+### 8.4 事件循环管理
+- 顶层同步入口使用 `asyncio.run()` 启动事件循环。
+- 不要在已有事件循环中再次调用 `asyncio.run()`。
+- 不要创建未关闭的 `asyncio.new_event_loop()`（资源泄漏）。
 
-    def activate(self) -> None:
-        """激活用户。"""
-        self._active = True
-
-    def deactivate(self) -> None:
-        """停用用户。"""
-        self._active = False
-
-
-def find_active_users(users: List[User]) -> List[User]:
-    """返回所有活跃用户。"""
-    return [user for user in users if user._active]  # 私有属性访问仅限示例
-
-
-def main() -> None:
-    user = User(1, "Alice")
-    user.activate()
-
-
-if __name__ == "__main__":
-    main()
+```python
+def fetch_source(source: dict[str, Any]) -> list[NewsItem]:
+    return asyncio.run(parse_source(source))
 ```
 
 ---
@@ -374,13 +389,18 @@ if __name__ == "__main__":
 ## 13. 常见问题（FAQ）
 
 ### Q1: Black 和 flake8 规则冲突怎么办？
-在 `.flake8` 或 `pyproject.toml` 中设置 `extend-ignore = E203`（切片空格问题），并保持 `max-line-length = 88`。
+在 `pyproject.toml` 中设置 `extend-ignore = E203`（切片空格问题），并保持 `max-line-length = 88`。运行 flake8 时需传入对应参数，或创建 `.flake8` 文件。
 
 ### Q2: Pylance 提示类型错误但代码能运行？
-说明类型不一致，应修复（例如添加 `Optional`）。Pylance 基于类型提示检验，不影响运行时，但强烈建议遵守。
+说明类型不一致，应修复（例如添加 `Optional` 或使用 `X | None`）。Pylance 基于类型提示检验，不影响运行时，但强烈建议遵守。
 
-### Q3: 如何让团队统一配置？
-提交 `pyproject.toml` 和 `.pre-commit-config.yaml` 到仓库，并安装 pre-commit 钩子。
+### Q3: uv 和 pip 有什么区别？
+uv 是 Astral 开发的极速 Python 包管理器（用 Rust 编写），替代 pip + pip-tools + virtualenv。核心优势：
+- 依赖解析速度比 pip 快 10-100 倍
+- 自动管理虚拟环境（`uv sync` 即安装+创建 venv）
+- 通过 `uv.lock` 保证依赖可复现
+- 内置 `uv run` 直接在项目环境中执行命令
 
----
+### Q4: 如何让团队统一配置？
+提交 `pyproject.toml` 和 `uv.lock` 到仓库。团队成员只需运行 `uv sync` 即可安装完全一致的依赖。
 

@@ -3,7 +3,7 @@
 读取指定页面的新闻列表，将符合条件的新闻结构化输出
 
 ## 流程
-- 读取config.json中的sources键，值为列表
+- 读取config.toml中的sources键，值为列表
 - 读取列表中每个消息源的定义
 - 用url访问新闻列表页
 - selectors键中的list_selector选择器是该列表页中的详情页的链接元素

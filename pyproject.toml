@@ -1,3 +1,24 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "base-life"
+version = "0.1.0"
+description = "Simple news scraper that reads config.toml and outputs structured NewsItem objects"
+requires-python = ">=3.12"
+dependencies = [
+    "aiohttp>=3.9,<4",
+    "beautifulsoup4>=4.12,<5",
+    "lxml>=5.0,<7",
+]
+
+[dependency-groups]
+dev = [
+    "black>=24.0",
+    "flake8>=7.0",
+]
+
 [tool.black]
 line-length = 88
 target-version = ['py312']
