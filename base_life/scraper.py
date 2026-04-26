@@ -110,6 +110,7 @@ _STRPTIME_TO_REGEX: dict[str, str] = {
     "%b": r"(?P<b>Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)",
 }
 
+
 def _pub_format_to_regex(fmt: str) -> tuple[str, str]:
     """Convert a ``pub-format`` string into a regex and strptime format.
 
