@@ -1,19 +1,21 @@
 """CLI entrypoint for the base-life scraper.
 
-Reads `config.toml` and prints a JSON array of `NewsItem` objects.
+Reads config.toml and prints a JSON array of NewsItem objects.
+Uses a shared aiohttp.ClientSession across all sources for
+connection pooling efficiency.
 """
 
 import argparse
+import asyncio
 import json
-from pathlib import Path
-from typing import Any, Dict, List
-
 import tomllib
+from pathlib import Path
+from typing import Any
 
-from base_life import scraper
+from base_life.scraper import fetch_all_sources, setup_logging
 
 
-def load_config_toml(path: Path) -> Dict[str, Any]:
+def load_config_toml(path: Path) -> dict[str, Any]:
     """Load TOML configuration from ``path``.
 
     Raises :class:`tomllib.TOMLDecodeError` if the file cannot be parsed,
@@ -27,21 +29,17 @@ def run(config_path: str = "config.toml") -> None:
     """Run the scraper using the TOML configuration at ``config_path``.
 
     Results are printed to stdout as pretty JSON. The TOML file should
-    contain a top-level `[[sources]]` array of tables and an optional
-    `[logging]` table with `level`.
+    contain a top-level ``[[sources]]`` array of tables and an optional
+    ``[logging]`` table with ``level``.
     """
     cfg = load_config_toml(Path(config_path))
 
     log_cfg = cfg.get("logging", {}) or {}
-    scraper.setup_logging(log_cfg.get("level"))
+    setup_logging(log_cfg.get("level"))
 
-    sources: List[Dict[str, Any]] = cfg.get("sources", []) or []
-    all_items: List[Dict[str, Any]] = []
-
-    for src in sources:
-        search_terms = src.get("selectors", {}).get("search", [])
-        items = scraper.fetch_source(src, search_terms=search_terms)
-        all_items.extend([it.to_dict() for it in items])
+    sources: list[dict[str, Any]] = cfg.get("sources", []) or []
+    items = asyncio.run(fetch_all_sources(sources))
+    all_items = [it.to_dict() for it in items]
 
     print(json.dumps(all_items, ensure_ascii=False, indent=2))
 

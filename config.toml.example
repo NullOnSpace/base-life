@@ -17,7 +17,7 @@ level = "INFO"
 #   - list_selector: CSS selector that locates link elements on the list page
 #   - title: selector to find the title element on the detail page
 #   - pub: selector to find the publication time element on the detail page
-#   - pub-format: optional simple format string (e.g. "YYYY-mm-dd HH:MM") to parse pub timestamps
+#   - pub-format: optional format string (e.g. "yyyy-mo-dd hh:mi") to parse pub timestamps
 #   - content: selector to find the article body (falls back to body text when missing)
 #   - search: array of search terms; when provided, items not matching any term will be marked `filtered=true`
 
@@ -35,8 +35,8 @@ list_selector = "a.article-link"
 title = "h1.title"
 pub = "time.pubdate"
 # pub-format is optional; if provided, the scraper will attempt to parse using this pattern
-# supported tokens: YYYY, mm, dd, HH, MM, SS
-pub-format = "YYYY-mm-dd HH:MM"
+# supported tokens: yyyy (year), mo (month), dd (day), hh (hour), mi (minute), ss (second)
+pub-format = "yyyy-mo-dd hh:mi"
 content = "div.article-body"
 # optional search terms (array of strings). If omitted, no filtering is applied by default.
 # search = ["关键词1", "关键词2"]

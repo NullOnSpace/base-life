@@ -1,7 +1,7 @@
 
 # Python 代码风格指南
 
-本指南旨在确保 Python 代码符合 **flake8**（样式检查）、**black**（代码格式化）和 **pylance**（类型检查与智能提示）的要求，保持代码一致性、可读性和可维护性。
+本指南旨在确保 Python 代码符合 **ruff**（lint 与导入排序）、**black**（代码格式化）和 **pylance**（类型检查与智能提示）的要求，保持代码一致性、可读性和可维护性。
 
 项目使用 **uv** 作为包管理与任务运行工具，依赖声明集中在 `pyproject.toml`。
 
@@ -21,7 +21,7 @@ result = some_function_that_takes_arguments(
 
 ### 1.2 行最大长度
 - **88 字符**（black 默认）。
-- flake8 通过 `max-line-length = 88` 配置兼容。
+- ruff 通过 `line-length = 88` 配置兼容。
 
 ### 1.3 代码格式化
 - 使用 **black** 自动格式化，不用手动调整空格、换行等。
@@ -63,7 +63,7 @@ def top_level_function():
 每组之间用一个空行分隔。
 
 ### 3.2 导入规范
-- 禁止 `import *`（会触发 flake8 的 F403）。
+- 禁止 `import *`（ruff 会检测为 F403）。
 - 尽量使用绝对导入。
 - 每行一个导入（除非使用括号进行多行导入）。
 
@@ -74,7 +74,7 @@ import os
 import re
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 from urllib.parse import urljoin
 
 import aiohttp
@@ -248,8 +248,8 @@ x = x + 1  # 补偿偏移量
 
 ```toml
 [build-system]
-requires = ["setuptools>=68.0"]
-build-backend = "setuptools.backends._legacy:_Backend"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "base-life"
@@ -262,19 +262,32 @@ dependencies = [
     "lxml>=5.0,<7",
 ]
 
+[project.scripts]
+base-life = "base_life.cli:main"
+
 [dependency-groups]
 dev = [
     "black>=24.0",
-    "flake8>=7.0",
+    "ruff>=0.8",
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "aioresponses>=0.7",
 ]
 
 [tool.black]
 line-length = 88
 target-version = ['py312']
 
-[tool.flake8]
-max-line-length = 88
-extend-ignore = ['E203']
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E203"]
+
+[tool.pytest]
+asyncio_mode = "auto"
 ```
 
 ### 10.2 uv 常用命令
@@ -286,17 +299,13 @@ extend-ignore = ['E203']
 | 添加运行依赖          | `uv add <package>`               |
 | 添加开发依赖          | `uv add --dev <package>`         |
 | 移除依赖              | `uv remove <package>`            |
-| 运行脚本              | `uv run python main.py`          |
+| 运行 CLI              | `uv run base-life`               |
 | 运行格式化            | `uv run black .`                 |
-| 运行 lint             | `uv run flake8 main.py base_life/` |
+| 运行 lint             | `uv run ruff check base_life/ tests/` |
+| 运行测试              | `uv run pytest -v`               |
 | 锁定依赖              | `uv lock`（自动生成 uv.lock）    |
 
-> **注意**：flake8 默认不读取 `pyproject.toml`，需确保运行时传入 `--max-line-length=88 --extend-ignore=E203`，或创建 `.flake8` 配置文件：
-> ```ini
-> [flake8]
-> max-line-length = 88
-> extend-ignore = E203
-> ```
+> **注意**：ruff 直接从 `pyproject.toml` 读取 `[tool.ruff]` 配置，无需额外配置文件。
 
 ---
 
@@ -305,7 +314,8 @@ extend-ignore = ['E203']
 ### 11.1 提交前检查
 ```bash
 uv run black .
-uv run flake8 --max-line-length=88 --extend-ignore=E203 main.py base_life/
+uv run ruff check base_life/ tests/
+uv run pytest -v
 ```
 
 ### 11.2 CI 配置示例
@@ -318,20 +328,23 @@ steps:
   - name: Check formatting
     run: uv run black --check .
   - name: Lint
-    run: uv run flake8 --max-line-length=88 --extend-ignore=E203 main.py base_life/
+    run: uv run ruff check base_life/ tests/
+  - name: Test
+    run: uv run pytest -v
 ```
 
 ---
 
 ## 12. 常见错误及避免
 
-| flake8 代码 | 说明                    | 避免方法                 |
-| ----------- | ----------------------- | ------------------------ |
-| E501        | 行过长                  | 自动格式化（black）      |
-| E302        | 函数/类前缺少两个空行   | 遵守空行规则             |
-| F401        | 导入未使用              | 删除或使用 `__all__`     |
-| F841        | 变量赋值未使用          | 删除或用 `_` 占位        |
-| E203        | 切片中空格与 black 冲突 | 在 flake8 中 ignore E203 |
+| 规则代码 | 说明                    | 避免方法                 |
+| -------- | ----------------------- | ------------------------ |
+| E501     | 行过长                  | 自动格式化（black）      |
+| E302     | 函数/类前缺少两个空行   | 遵守空行规则             |
+| F401     | 导入未使用              | 删除或使用 `__all__`     |
+| F841     | 变量赋值未使用          | 删除或用 `_` 占位        |
+| E203     | 切片中空格与 black 冲突 | 在 ruff 中 ignore E203   |
+| I001     | 导入排序不正确          | `ruff check --fix` 自动修复 |
 
 ---
 
@@ -380,16 +393,18 @@ except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
 - 不要创建未关闭的 `asyncio.new_event_loop()`（资源泄漏）。
 
 ```python
-def fetch_source(source: dict[str, Any]) -> list[NewsItem]:
-    return asyncio.run(parse_source(source))
+def run(config_path: str = "config.toml") -> None:
+    cfg = load_config_toml(Path(config_path))
+    sources = cfg.get("sources", [])
+    items = asyncio.run(fetch_all_sources(sources))
 ```
 
 ---
 
 ## 13. 常见问题（FAQ）
 
-### Q1: Black 和 flake8 规则冲突怎么办？
-在 `pyproject.toml` 中设置 `extend-ignore = E203`（切片空格问题），并保持 `max-line-length = 88`。运行 flake8 时需传入对应参数，或创建 `.flake8` 文件。
+### Q1: Black 和 ruff 规则冲突怎么办？
+项目在 `pyproject.toml` 的 `[tool.ruff.lint]` 中设置 `ignore = ["E203"]`（切片空格问题），并保持 `line-length = 88`。ruff 直接读取 pyproject.toml，无需额外配置。
 
 ### Q2: Pylance 提示类型错误但代码能运行？
 说明类型不一致，应修复（例如添加 `Optional` 或使用 `X | None`）。Pylance 基于类型提示检验，不影响运行时，但强烈建议遵守。

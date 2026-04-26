@@ -13,10 +13,13 @@ dependencies = [
     "lxml>=5.0,<7",
 ]
 
+[project.scripts]
+base-life = "base_life.cli:main"
+
 [dependency-groups]
 dev = [
     "black>=24.0",
-    "flake8>=7.0",
+    "ruff>=0.8",
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "aioresponses>=0.7",
@@ -26,9 +29,13 @@ dev = [
 line-length = 88
 target-version = ['py312']
 
-[tool.flake8]
-max-line-length = 88
-extend-ignore = ['E203']
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E203"]
 
 [tool.pytest]
 asyncio_mode = "auto"

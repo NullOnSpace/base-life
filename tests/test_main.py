@@ -1,13 +1,12 @@
-"""Tests for main.py CLI and runner functions."""
+"""Tests for base_life.cli CLI and runner functions."""
 
 import json
 import sys
+import tomllib
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import tomllib
-
-from main import load_config_toml, main, run
+from base_life.cli import load_config_toml, main, run
 
 MOCK_TOML_CONTENT = """
 [logging]
@@ -21,7 +20,7 @@ url = "https://example.com"
 list_selector = "div.list-content ul li a"
 title = "h1.arti-title"
 pub = "span.arti-update"
-pub-format = "YYYY-mm-dd"
+pub-format = "yyyy-mo-dd"
 content = "div.arti-articlecontent"
 """
 
@@ -57,7 +56,7 @@ class TestLoadConfigToml:
         assert result["logging"]["level"] == "DEBUG"
 
     def test_load_nonexistent_file_raises(self):
-        with patch("main.Path.open", side_effect=FileNotFoundError):
+        with patch("base_life.cli.Path.open", side_effect=FileNotFoundError):
             try:
                 load_config_toml(Path("/nonexistent/config.toml"))
                 assert False, "Should have raised FileNotFoundError"
@@ -88,14 +87,15 @@ class TestRun:
             ),
         ]
 
-        with patch("main.scraper.fetch_source", return_value=mock_items) as mock_fetch:
-            with patch("main.scraper.setup_logging"):
+        with patch(
+            "base_life.cli.fetch_all_sources", return_value=mock_items
+        ) as mock_fetch:
+            with patch("base_life.cli.setup_logging"):
                 run(str(cfg_file))
 
         mock_fetch.assert_called_once()
         call_args = mock_fetch.call_args
-        assert call_args[0][0]["name"] == "mock-source"
-        assert call_args[1]["search_terms"] == []
+        assert call_args[0][0][0]["name"] == "mock-source"
 
         captured = capsys.readouterr()
         output = json.loads(captured.out)
@@ -107,8 +107,9 @@ class TestRun:
         cfg_file = tmp_path / "empty.toml"
         cfg_file.write_text("[logging]\nlevel = 'INFO'\n", encoding="utf-8")
 
-        with patch("main.scraper.setup_logging"):
-            run(str(cfg_file))
+        with patch("base_life.cli.setup_logging"):
+            with patch("base_life.cli.fetch_all_sources", return_value=[]):
+                run(str(cfg_file))
 
         captured = capsys.readouterr()
         output = json.loads(captured.out)
@@ -117,15 +118,15 @@ class TestRun:
 
 class TestMain:
     def test_main_with_default_config(self):
-        with patch("main.run") as mock_run:
+        with patch("base_life.cli.run") as mock_run:
             mock_run.return_value = None
-            sys.argv = ["main.py"]
+            sys.argv = ["base-life"]
             main()
         mock_run.assert_called_once_with("config.toml")
 
     def test_main_with_custom_config(self):
-        with patch("main.run") as mock_run:
+        with patch("base_life.cli.run") as mock_run:
             mock_run.return_value = None
-            sys.argv = ["main.py", "/path/to/custom.toml"]
+            sys.argv = ["base-life", "/path/to/custom.toml"]
             main()
         mock_run.assert_called_once_with("/path/to/custom.toml")

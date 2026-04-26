@@ -1,17 +1,16 @@
 """Simple news scraper utilities.
 
 Provides functions to fetch pages, parse news items according to a
-`config.toml` source definition, and filter results by search terms.
+config.toml source definition, and filter results by search terms.
 """
 
 import asyncio
 import logging
 import os
 import re
-from asyncio import Semaphore
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 from urllib.parse import urljoin
 
 import aiohttp
@@ -20,11 +19,13 @@ from bs4 import BeautifulSoup
 logger = logging.getLogger(__name__)
 
 
-def setup_logging(level: Optional[str] = None) -> None:
+def setup_logging(level: str | None = None) -> None:
     """Configure basic logging for the scraper.
 
     If ``level`` is not provided, read from the environment variable
     ``BASE_LIFE_LOG_LEVEL``. Accepts logging level names or integers.
+    Only affects the root logger when no handlers exist yet; otherwise
+    just sets the level on the existing root logger.
     """
     if level is None:
         level = os.environ.get("BASE_LIFE_LOG_LEVEL", "INFO")
@@ -34,19 +35,20 @@ def setup_logging(level: Optional[str] = None) -> None:
     except (ValueError, TypeError):
         lvl = getattr(logging, str(level).upper(), logging.INFO)
 
-    if not logging.getLogger().handlers:
+    root = logging.getLogger()
+    if not root.handlers:
         logging.basicConfig(
             level=lvl,
             format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         )
     else:
-        logging.getLogger().setLevel(lvl)
+        root.setLevel(lvl)
 
 
-def default_headers() -> Dict[str, str]:
+def default_headers() -> dict[str, str]:
     """Return a set of default headers that resemble a real browser.
 
-    Callers may update/override these per-source via `source["headers"]`.
+    Callers may update/override these per-source via ``source["headers"]``.
     """
     return {
         "User-Agent": (
@@ -60,7 +62,7 @@ def default_headers() -> Dict[str, str]:
     }
 
 
-def _merge_headers(source: Dict[str, Any]) -> Dict[str, str]:
+def _merge_headers(source: dict[str, Any]) -> dict[str, str]:
     """Merge default headers with any source-specific overrides."""
     src_headers = source.get("headers", {}) or {}
     merged = default_headers()
@@ -68,7 +70,7 @@ def _merge_headers(source: Dict[str, Any]) -> Dict[str, str]:
     return merged
 
 
-def _select_with_contains(soup: BeautifulSoup, selector: str) -> List[BeautifulSoup]:
+def _select_with_contains(soup: BeautifulSoup, selector: str) -> list[BeautifulSoup]:
     """Select elements supporting a ``:contains(text)`` pseudo-selector.
 
     When ``:contains("text")`` is present we emulate it by filtering
@@ -84,20 +86,29 @@ def _select_with_contains(soup: BeautifulSoup, selector: str) -> List[BeautifulS
     return soup.select(selector)
 
 
-def _pub_format_to_regex(fmt: str) -> Tuple[str, str]:
-    """Convert a simple ``pub-format`` string into a regex and strptime
-    format string.
+def _pub_format_to_regex(fmt: str) -> tuple[str, str]:
+    """Convert a ``pub-format`` string into a regex and strptime format.
 
-    Supported tokens (order matters: longer tokens first to avoid partial
-    replacement): ``YYYY``, ``MM``, ``mm``, ``dd``, ``HH``, ``SS``.
+    Supported tokens (order matters — longer/more-specific first):
+
+    ======  ========  ===========
+    Token   Regex     strptime
+    ======  ========  ===========
+    yyyy    \\d{4}    %Y   (year)
+    mo      \\d{1,2}  %m   (month)
+    dd      \\d{1,2}  %d   (day)
+    hh      \\d{1,2}  %H   (hour)
+    mi      \\d{1,2}  %M   (minute)
+    ss      \\d{1,2}  %S   (second)
+    ======  ========  ===========
     """
-    token_map: List[Tuple[str, str, str]] = [
-        (r"YYYY", r"(?P<Y>\d{4})", "%Y"),
-        (r"MM", r"(?P<M>\d{1,2})", "%M"),
-        (r"mm", r"(?P<m>\d{1,2})", "%m"),
-        (r"dd", r"(?P<d>\d{1,2})", "%d"),
-        (r"HH", r"(?P<H>\d{1,2})", "%H"),
-        (r"SS", r"(?P<S>\d{1,2})", "%S"),
+    token_map: list[tuple[str, str, str]] = [
+        ("yyyy", r"(?P<Y>\d{4})", "%Y"),
+        ("mo", r"(?P<m>\d{1,2})", "%m"),
+        ("dd", r"(?P<d>\d{1,2})", "%d"),
+        ("hh", r"(?P<H>\d{1,2})", "%H"),
+        ("mi", r"(?P<M>\d{1,2})", "%M"),
+        ("ss", r"(?P<S>\d{1,2})", "%S"),
     ]
     regex = re.escape(fmt)
     strptime = fmt
@@ -109,7 +120,7 @@ def _pub_format_to_regex(fmt: str) -> Tuple[str, str]:
     return regex, strptime
 
 
-def extract_pub_time(text: str, pub_format: str) -> Optional[str]:
+def extract_pub_time(text: str, pub_format: str) -> str | None:
     """Extract a publication time from ``text`` using ``pub_format``.
 
     Returns an ISO 8601 formatted string on success, or ``None`` on failure.
@@ -120,15 +131,17 @@ def extract_pub_time(text: str, pub_format: str) -> Optional[str]:
     regex, strptime_fmt = _pub_format_to_regex(pub_format)
     m = re.search(regex, text)
     if not m:
-        pattern = r"(\d{4}[-/.]\d{1,2}[-/.]\d{1,2} \d{1,2}:\d{2}(?::\d{2})?)"
-        m2 = re.search(pattern, text)
-        if m2:
-            try:
-                dt = datetime.fromisoformat(m2.group(1))
-                return dt.isoformat()
-            except ValueError:
-                return None
-
+        for pattern in [
+            r"(\d{4}[-/.]\d{1,2}[-/.]\d{1,2} \d{1,2}:\d{2}(?:\d{2})?)",
+            r"(\d{4}[-/.]\d{1,2}[-/.]\d{1,2})",
+        ]:
+            m2 = re.search(pattern, text)
+            if m2:
+                try:
+                    dt = datetime.fromisoformat(m2.group(1))
+                    return dt.isoformat()
+                except ValueError:
+                    continue
         return None
 
     date_str = m.group(0)
@@ -142,15 +155,22 @@ def extract_pub_time(text: str, pub_format: str) -> Optional[str]:
 async def _async_fetch_url(
     url: str,
     session: aiohttp.ClientSession,
-    headers: Optional[Dict[str, str]] = None,
-    timeout: int = 15,
-) -> Optional[str]:
-    """Fetch URL content asynchronously and return text or ``None`` on error."""
+    headers: dict[str, str] | None = None,
+    per_request_timeout: int | None = None,
+) -> str | None:
+    """Fetch URL content asynchronously and return text or ``None`` on error.
+
+    Uses the session-level timeout by default. When
+    ``per_request_timeout`` is given, it overrides the session timeout
+    for this specific request only.
+    """
     try:
         hdrs = headers or default_headers()
-        logger.debug("HTTP GET %s (timeout=%s)", url, timeout)
-        client_timeout = aiohttp.ClientTimeout(total=timeout)
-        async with session.get(url, timeout=client_timeout, headers=hdrs) as resp:
+        logger.debug("HTTP GET %s", url)
+        kwargs: dict[str, Any] = {"headers": hdrs}
+        if per_request_timeout is not None:
+            kwargs["timeout"] = aiohttp.ClientTimeout(total=per_request_timeout)
+        async with session.get(url, **kwargs) as resp:
             if resp.status != 200:
                 logger.warning("Non-200 response %s for %s", resp.status, url)
                 return None
@@ -163,8 +183,8 @@ async def _async_fetch_url(
 
 
 def _extract_links(
-    soup: BeautifulSoup, list_sel: Optional[str], base_url: str
-) -> List[str]:
+    soup: BeautifulSoup, list_sel: str | None, base_url: str
+) -> list[str]:
     """Extract and resolve detail-page links from a list page."""
     page_base = base_url
     base_tag = soup.find("base", href=True)
@@ -180,7 +200,7 @@ def _extract_links(
             )
 
     link_elems = _select_with_contains(soup, list_sel) if list_sel else []
-    links: List[str] = []
+    links: list[str] = []
 
     for el in link_elems:
         href = el.get("href") if hasattr(el, "get") else None
@@ -192,15 +212,15 @@ def _extract_links(
 
 @dataclass
 class NewsItem:
-    source: Optional[str] = None
-    url: Optional[str] = None
-    title: Optional[str] = None
-    pub: Optional[str] = None
-    content: Optional[str] = None
+    source: str | None = None
+    url: str | None = None
+    title: str | None = None
+    pub: str | None = None
+    content: str | None = None
     filtered: bool = False
-    filter_reason: Optional[str] = None
+    filter_reason: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "source": self.source,
             "url": self.url,
@@ -212,21 +232,28 @@ class NewsItem:
         }
 
 
+@dataclass
+class _SourceContext:
+    """Bundled source-related parameters passed to ``_fetch_detail``."""
+
+    name: str | None = None
+    base_url: str | None = None
+    merged_headers: dict[str, str] = field(default_factory=dict)
+    selectors: dict[str, Any] = field(default_factory=dict)
+
+
 async def _fetch_detail(
     session: aiohttp.ClientSession,
-    sem: Semaphore,
+    sem: asyncio.Semaphore,
     link: str,
-    base_url: Optional[str],
-    merged_headers: Dict[str, str],
-    selectors: Dict[str, Any],
-    source_name: Optional[str],
-) -> Optional[NewsItem]:
+    ctx: _SourceContext,
+) -> NewsItem | None:
     """Fetch and parse a single detail page."""
     async with sem:
         logger.debug("Fetching detail page: %s", link)
-        per_headers = dict(merged_headers)
-        if base_url:
-            per_headers.setdefault("Referer", base_url)
+        per_headers = dict(ctx.merged_headers)
+        if ctx.base_url:
+            per_headers.setdefault("Referer", ctx.base_url)
 
         detail_html = await _async_fetch_url(link, session, headers=per_headers)
         if not detail_html:
@@ -235,26 +262,23 @@ async def _fetch_detail(
         logger.debug("Fetched %s bytes for %s", len(detail_html), link)
 
     dsoup = BeautifulSoup(detail_html, "lxml")
-    title_sel = selectors.get("title")
-    pub_sel = selectors.get("pub")
-    pub_fmt = selectors.get("pub-format")
-    content_sel = selectors.get("content")
+    title_sel = ctx.selectors.get("title")
+    pub_sel = ctx.selectors.get("pub")
+    pub_fmt = ctx.selectors.get("pub-format")
+    content_sel = ctx.selectors.get("content")
 
-    title: Optional[str] = None
+    title: str | None = None
     if title_sel:
         els = _select_with_contains(dsoup, title_sel)
         if els:
             title = els[0].get_text(strip=True)
     logger.debug("Parsed title for %s: %s", link, title)
 
-    pub_text: Optional[str] = None
+    pub_text: str | None = None
     if pub_sel:
         els = _select_with_contains(dsoup, pub_sel)
         if els:
             pub_text = els[0].get_text(separator=" ", strip=True)
-        else:
-            node = dsoup.select_one(pub_sel)
-            pub_text = node.get_text(strip=True) if node else None
 
     pub = extract_pub_time(pub_text or "", pub_fmt) if pub_fmt else None
     logger.debug("Parsed pub for %s: %s", link, pub)
@@ -270,7 +294,7 @@ async def _fetch_detail(
     logger.debug("Content length for %s: %d", link, len(content or ""))
 
     return NewsItem(
-        source=source_name,
+        source=ctx.name,
         url=link,
         title=title,
         pub=pub,
@@ -278,24 +302,51 @@ async def _fetch_detail(
     )
 
 
-def _matches_search(text: str, terms: List[str]) -> bool:
+def _matches_search(text: str, terms: list[str]) -> bool:
     """Check whether ``text`` (already lowered) contains any of the
     lowered ``terms`` as a substring.
     """
     return any(term in text for term in terms)
 
 
-def _item_search_text(title: Optional[str], content: Optional[str]) -> str:
+def _item_search_text(title: str | None, content: str | None) -> str:
     """Combine title and content into a single lowered string for search."""
-    parts = list(filter(None, [title or "", content or ""]))
+    parts = [v for v in [title, content] if v]
     return " ".join(parts).lower()
 
 
-async def parse_source(source: Dict[str, Any]) -> List[NewsItem]:
+def _apply_search_filter(
+    items: list[NewsItem], search_terms: list[str]
+) -> list[NewsItem]:
+    """Mark items that don't match ``search_terms`` as filtered.
+
+    Matching is case-insensitive substring. Items that match keep
+    ``filtered=False``; non-matching items get ``filtered=True`` with
+    ``filter_reason="no match"``.
+    """
+    lowered_terms = [t.lower() for t in search_terms]
+    matched = 0
+    for it in items:
+        text = _item_search_text(it.title, it.content)
+        if _matches_search(text, lowered_terms):
+            it.filtered = False
+            it.filter_reason = None
+            matched += 1
+        else:
+            it.filtered = True
+            it.filter_reason = "no match"
+    return items
+
+
+async def parse_source(
+    source: dict[str, Any],
+    session: aiohttp.ClientSession | None = None,
+) -> list[NewsItem]:
     """Parse a source definition from config and return list of items.
 
-    The ``source`` dict is expected to have keys like ``url``, ``name`` and
-    ``selectors`` following the project README and `docs/START.md`.
+    When ``session`` is provided, it is reused for all requests (enabling
+    connection pooling across sources). When ``None``, a new session is
+    created and closed within this call.
     """
     base_url = source.get("url")
     selectors = source.get("selectors", {})
@@ -304,9 +355,20 @@ async def parse_source(source: Dict[str, Any]) -> List[NewsItem]:
     logger.info("Parsing source %s: %s", source.get("name"), base_url)
     merged_headers = _merge_headers(source)
 
-    conn = aiohttp.TCPConnector(limit_per_host=5)
-    timeout = aiohttp.ClientTimeout(total=60)
-    async with aiohttp.ClientSession(connector=conn, timeout=timeout) as session:
+    ctx = _SourceContext(
+        name=source.get("name"),
+        base_url=base_url,
+        merged_headers=merged_headers,
+        selectors=selectors,
+    )
+
+    owned_session = session is None
+    if owned_session:
+        conn = aiohttp.TCPConnector(limit_per_host=5)
+        timeout = aiohttp.ClientTimeout(total=60)
+        session = aiohttp.ClientSession(connector=conn, timeout=timeout)
+
+    try:
         html = (
             await _async_fetch_url(base_url, session, headers=merged_headers)
             if base_url
@@ -319,22 +381,13 @@ async def parse_source(source: Dict[str, Any]) -> List[NewsItem]:
         soup = BeautifulSoup(html, "lxml")
         links = _extract_links(soup, list_sel, base_url or "")
         logger.debug(
-            "Found %d candidate links for source %s", len(links), source.get("name")
+            "Found %d candidate links for source %s",
+            len(links),
+            source.get("name"),
         )
 
-        sem = Semaphore(8)
-        tasks = [
-            _fetch_detail(
-                session,
-                sem,
-                link,
-                base_url,
-                merged_headers,
-                selectors,
-                source.get("name"),
-            )
-            for link in links
-        ]
+        sem = asyncio.Semaphore(8)
+        tasks = [_fetch_detail(session, sem, link, ctx) for link in links]
         results_async = await asyncio.gather(*tasks)
         details = [r for r in results_async if r]
         logger.info(
@@ -343,68 +396,84 @@ async def parse_source(source: Dict[str, Any]) -> List[NewsItem]:
             source.get("name"),
         )
         return details
+    finally:
+        if owned_session:
+            await session.close()
 
 
 def fetch_source(
-    source: Dict[str, Any], search_terms: Optional[List[str]] = None
-) -> List[NewsItem]:
-    """Fetch items for a source and return a list of `NewsItem` objects.
+    source: dict[str, Any],
+    search_terms: list[str] | None = None,
+    session: aiohttp.ClientSession | None = None,
+) -> list[NewsItem]:
+    """Fetch items for a source and return a list of ``NewsItem`` objects.
 
-    If `search_terms` is provided, each returned `NewsItem` will have
-    `filtered=True` when it does NOT match any of the search terms. The
-    function returns all items (both matched and filtered) so callers can
-    inspect the `filtered` flag.
+    If ``search_terms`` is provided, each returned ``NewsItem`` will have
+    ``filtered=True`` when it does NOT match any of the search terms.
+
+    When ``session`` is provided, it is reused across requests (enabling
+    connection pooling). When ``None``, a new session is created per call.
     """
-    items = asyncio.run(parse_source(source))
-    if not search_terms:
-        return items
+    if session is not None:
+        items = asyncio.run(parse_source(source, session=session), debug=False)
+    else:
+        items = asyncio.run(parse_source(source))
 
-    lowered_terms = [t.lower() for t in search_terms]
-    matched = 0
-    for it in items:
-        text = _item_search_text(it.title, it.content)
-        if _matches_search(text, lowered_terms):
-            it.filtered = False
-            it.filter_reason = None
-            matched += 1
-        else:
-            it.filtered = True
-            it.filter_reason = "no match"
+    if search_terms:
+        _apply_search_filter(items, search_terms)
 
     logger.info(
-        "Marked %d/%d items as matched for source %s",
-        matched,
+        "Fetched %d items for source %s (search_terms=%s)",
         len(items),
         source.get("name"),
+        search_terms,
     )
     return items
 
 
-def unfiltered_items(items: List[NewsItem]) -> List[NewsItem]:
+async def fetch_all_sources(
+    sources: list[dict[str, Any]],
+) -> list[NewsItem]:
+    """Fetch items from all sources using a shared ``ClientSession``.
+
+    This enables connection pooling across sources that share the same
+    host, and avoids repeated event-loop creation overhead.
+    """
+    conn = aiohttp.TCPConnector(limit_per_host=5)
+    timeout = aiohttp.ClientTimeout(total=60)
+    async with aiohttp.ClientSession(connector=conn, timeout=timeout) as session:
+        all_items: list[NewsItem] = []
+        for src in sources:
+            items = await parse_source(src, session=session)
+            search_terms = src.get("selectors", {}).get("search", [])
+            if search_terms:
+                _apply_search_filter(items, search_terms)
+            all_items.extend(items)
+        return all_items
+
+
+def unfiltered_items(items: list[NewsItem]) -> list[NewsItem]:
     """Return only items that are not marked as filtered."""
     return [it for it in items if not it.filtered]
 
 
 def filter_by_search(
-    items: List[Dict[str, Any]], search_terms: List[str]
-) -> List[Dict[str, Any]]:
-    """Return only items that contain any of the ``search_terms`` in title or content.
+    items: list[dict[str, Any]], search_terms: list[str]
+) -> list[dict[str, Any]]:
+    """Return only items that contain any of the ``search_terms``.
 
-    Matching is case-insensitive and performs simple substring matching.
+    Matching is case-insensitive and performs simple substring matching
+    on title and content fields.
     """
-    logger.info("Filtering %d items with search terms: %s", len(items), search_terms)
-
     if not search_terms:
-        logger.debug("No search terms provided, returning original items")
         return items
 
     lowered_terms = [t.lower() for t in search_terms]
-    out: List[Dict[str, Any]] = []
-
-    for it in items:
-        text = _item_search_text(it.get("title"), it.get("content"))
-        if _matches_search(text, lowered_terms):
-            out.append(it)
-
-    logger.info("Filtered down to %d items", len(out))
-    return out
+    return [
+        it
+        for it in items
+        if _matches_search(
+            _item_search_text(it.get("title"), it.get("content")),
+            lowered_terms,
+        )
+    ]

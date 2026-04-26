@@ -11,6 +11,6 @@
 - title是新闻标题的选择器
 - pub是发布时间的选择器，值的示例"
                        发布日期：2026-04-23 10:16&nbsp;&nbsp;信息来源：xxxxxx&nbsp;&nbsp;【字体：<a href="javascript:doZoom(18)">大</a>&nbsp;<a href="javascript:doZoom(16)">中</a>&nbsp;<a href="javascript:doZoom(12)">小</a>"
-- 发布时间需要通过pub-format定义的格式提取出来
+- 发布时间需要通过 pub-format 定义的格式提取出来，支持标记：`yyyy`(年)、`mo`(月)、`dd`(日)、`hh`(时)、`mi`(分)、`ss`(秒)
 - content为新闻内容选择器，内部可能有html标签，需要提取成纯文本
 - 最后结构化返回content包含search中任一词条的新闻
