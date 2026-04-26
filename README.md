@@ -231,4 +231,4 @@ uv run base-life config.toml
 
 更多
 
-请参考 [config.toml](config.toml) 和 [docs/START.md](docs/START.md) 了解配置格式与选择器写法。
+请参考 [config.toml.example](config.toml.example) 和 [docs/START.md](docs/START.md) 了解配置格式与选择器写法。
