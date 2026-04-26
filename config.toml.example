@@ -1,0 +1,42 @@
+# base-life configuration (TOML)
+#
+# This file defines scraper sources and logging options. Fields are
+# documented inline. Edit or copy this file to create your local config.
+
+# Logging configuration
+[logging]
+# level: logging level name or numeric value (e.g. "INFO", "DEBUG", 20)
+level = "INFO"
+
+# Sources: an array of tables. Each [[sources]] block describes one site to scrape.
+# Fields:
+# - name: human-readable source identifier
+# - url: the list page URL to fetch
+# - headers: optional table of headers to merge into default request headers
+# - selectors: table describing CSS selectors for list, title, pub, content and optional search terms
+#   - list_selector: CSS selector that locates link elements on the list page
+#   - title: selector to find the title element on the detail page
+#   - pub: selector to find the publication time element on the detail page
+#   - pub-format: optional simple format string (e.g. "YYYY-mm-dd HH:MM") to parse pub timestamps
+#   - content: selector to find the article body (falls back to body text when missing)
+#   - search: array of search terms; when provided, items not matching any term will be marked `filtered=true`
+
+[[sources]]
+name = "example"
+url = "https://example.com/news/list"
+
+# Per-source headers override (optional). Keys should be exact header names.
+[sources.headers]
+# Example: custom user agent for this source
+# User-Agent = "MyScraper/1.0"
+
+[sources.selectors]
+list_selector = "a.article-link"
+title = "h1.title"
+pub = "time.pubdate"
+# pub-format is optional; if provided, the scraper will attempt to parse using this pattern
+# supported tokens: YYYY, mm, dd, HH, MM, SS
+pub-format = "YYYY-mm-dd HH:MM"
+content = "div.article-body"
+# optional search terms (array of strings). If omitted, no filtering is applied by default.
+# search = ["关键词1", "关键词2"]
