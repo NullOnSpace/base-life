@@ -22,30 +22,156 @@ uv run base-life config.toml
 
 ## 输出
 
-CLI 和库接口现在返回 `NewsItem` 对象（位于 `base_life.scraper`），每项包含字段：
+CLI 和库接口返回 `NewsItem` 对象（位于 `base_life.scraper`），每项包含字段：
 
-- `source`, `url`, `title`, `pub`, `content` — 基本抓取结果。
-- `filtered` (bool) — 是否被搜索条件过滤掉（`True` 表示不匹配搜索词）。
-- `filter_reason` (optional) — 过滤原因说明（例如 `"no match"`）。
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `source` | `str` | 来源名称（对应配置中的 `name`） |
+| `url` | `str` | 详情页 URL |
+| `title` | `str | None` | 新闻标题 |
+| `pub` | `str | None` | 发布时间（ISO 8601 格式） |
+| `content` | `str | None` | 正文纯文本 |
+| `filtered` | `bool` | 是否被搜索条件过滤（`True` = 不匹配） |
+| `filter_reason` | `str | None` | 过滤原因（如 `"no match"`） |
 
-可编程用法示例：
+`NewsItem` 是 dataclass，支持 `to_dict()` 方法转换为字典。
+
+## 作为库使用
+
+所有公共 API 位于 `base_life.scraper` 和 `base_life.cli` 两个模块。
+
+### 常用接口一览
+
+| 接口 | 模块 | 类型 | 说明 |
+|---|---|---|---|
+| `NewsItem` | `scraper` | dataclass | 抓取结果数据对象 |
+| `fetch_all_sources(sources)` | `scraper` | async | 一次性抓取所有源（共享 session） |
+| `fetch_source(source, search_terms, session)` | `scraper` | async | 抓取单个源（可指定搜索词） |
+| `parse_source(source, session)` | `scraper` | async | 解析单个源（不自动过滤） |
+| `unfiltered_items(items)` | `scraper` | sync | 从结果中筛选未过滤项 |
+| `setup_logging(level)` | `scraper` | sync | 配置日志（默认读环境变量） |
+| `default_headers()` | `scraper` | sync | 返回默认浏览器请求头副本 |
+| `extract_pub_time(text, pub_format)` | `scraper` | sync | 从文本提取发布时间 |
+| `load_config_toml(path)` | `cli` | sync | 从文件加载 TOML 配置 |
+| `run(config_path)` | `cli` | sync | 读取配置并运行完整流程 |
+
+### 抓取所有源（推荐方式）
+
+`fetch_all_sources` 内部创建共享 `aiohttp.ClientSession`，跨源复用连接池，效率最高：
 
 ```python
 import asyncio
-from base_life.scraper import setup_logging, fetch_all_sources
+from base_life.scraper import setup_logging, fetch_all_sources, unfiltered_items
 
-setup_logging()
+setup_logging("DEBUG")
+
 sources = [
     {
-        "name": "example",
-        "url": "https://example.com/news/list",
-        "selectors": { ... },
+        "name": "water",
+        "url": "https://www.somewhere.gov.cn/public/column/1234",
+        "selectors": {
+            "list_selector": "a.article-link",
+            "title": "h1",
+            "pub": "td:contains('发布日期')",
+            "pub-format": "yyyy-mo-dd hh:mi",
+            "content": "div.article-body",
+            "search": ["供水", "停水"],
+        },
+    },
+    {
+        "name": "news",
+        "url": "https://www.somewhere.gov.cn/news/list",
+        "selectors": {
+            "list_selector": "ul.news-list a",
+            "title": "h1.title",
+            "pub": "span.pub-date",
+            "pub-format": "yyyy-mo-dd",
+            "content": "div.content",
+            "search": ["通知", "重要"],
+        },
     },
 ]
+
 items = asyncio.run(fetch_all_sources(sources))
-for it in items:
-    print(it.to_dict())
+matched = unfiltered_items(items)
+for it in matched:
+    print(it.title, it.pub, it.url)
 ```
+
+### 抓取单个源
+
+`fetch_source` 适合只需处理一个源的场景，可传入 `search_terms` 自动过滤：
+
+```python
+import asyncio
+from base_life.scraper import fetch_source, unfiltered_items
+
+source = {
+    "name": "example",
+    "url": "https://example.com/news/list",
+    "selectors": {
+        "list_selector": "a.news-link",
+        "title": "h1",
+        "pub": "time.pub",
+        "pub-format": "yyyy-mo-dd hh:mi:ss",
+        "content": "div.article-body",
+    },
+}
+
+items = asyncio.run(fetch_source(source, search_terms=["供水"]))
+matched = unfiltered_items(items)
+```
+
+### 共享 session 跨源抓取
+
+在已有 async 上下文中，可传入 `session` 参数避免反复创建连接：
+
+```python
+import aiohttp
+import asyncio
+from base_life.scraper import parse_source, _apply_search_filter
+
+async def main():
+    conn = aiohttp.TCPConnector(limit_per_host=5)
+    timeout = aiohttp.ClientTimeout(total=60)
+    async with aiohttp.ClientSession(connector=conn, timeout=timeout) as session:
+        items_a = await parse_source(source_a, session=session)
+        items_b = await parse_source(source_b, session=session)
+        all_items = items_a + items_b
+
+        _apply_search_filter(all_items, ["供水", "通知"])
+
+asyncio.run(main())
+```
+
+### 从 TOML 配置运行
+
+`base_life.cli` 提供从 TOML 文件读取配置并运行完整流程的接口：
+
+```python
+from base_life.cli import load_config_toml, run
+from pathlib import Path
+
+run("config.toml")
+```
+
+### 时间提取工具
+
+`extract_pub_time` 可独立使用，从任意文本中按格式提取时间：
+
+```python
+from base_life.scraper import extract_pub_time
+
+text = "发布日期：2025-04-26 10:30&nbsp;&nbsp;信息来源：xxx"
+iso = extract_pub_time(text, "yyyy-mo-dd hh:mi")
+# => "2025-04-26T10:30:00"
+
+text2 = "更新时间 2025/04/26"
+iso2 = extract_pub_time(text2, "yyyy/mo/dd")
+# => "2025-04-26T00:00:00"
+```
+
+`pub-format` 支持的标记：`yyyy`（年）、`mo`（月）、`dd`（日）、`hh`（时）、`mi`（分）、`ss`（秒）。
 
 ## 功能要点
 
