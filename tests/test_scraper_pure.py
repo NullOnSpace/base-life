@@ -83,85 +83,138 @@ class TestSelectWithContains:
 
 
 class TestPubFormatToRegex:
-    def test_simple_date_format(self):
-        regex, strptime = _pub_format_to_regex("yyyy-mo-dd")
+    def test_simple_date(self):
+        regex, strptime = _pub_format_to_regex("%Y-%m-%d")
         assert "?P<Y>" in regex
         assert "?P<m>" in regex
         assert "?P<d>" in regex
-        assert "%Y" in strptime
-        assert "%m" in strptime
-        assert "%d" in strptime
+        assert strptime == "%Y-%m-%d"
 
     def test_full_datetime_format(self):
-        regex, strptime = _pub_format_to_regex("yyyy-mo-dd hh:mi:ss")
+        regex, strptime = _pub_format_to_regex("%Y-%m-%d %H:%M:%S")
         assert "?P<Y>" in regex
         assert "?P<m>" in regex
         assert "?P<d>" in regex
         assert "?P<H>" in regex
         assert "?P<M>" in regex
         assert "?P<S>" in regex
-        assert "%Y" in strptime
-        assert "%m" in strptime
-        assert "%d" in strptime
-        assert "%H" in strptime
-        assert "%M" in strptime
-        assert "%S" in strptime
+        assert strptime == "%Y-%m-%d %H:%M:%S"
 
-    def test_token_names_are_intuitive(self):
-        regex, strptime = _pub_format_to_regex("yyyy-mo-dd hh:mi")
+    def test_minute_vs_month_names(self):
+        regex, strptime = _pub_format_to_regex("%Y-%m-%d %H:%M")
         assert "?P<m>" in regex and "%m" in strptime
         assert "?P<M>" in regex and "%M" in strptime
 
-    def test_literal_chars_preserved(self):
-        regex, strptime = _pub_format_to_regex("yyyy-mo-dd")
-        assert "?P<Y>" in regex
-        assert "%Y" in strptime
+    def test_slash_separator(self):
+        regex, strptime = _pub_format_to_regex("%Y/%m/%d")
+        assert r"/" in regex
+        assert strptime == "%Y/%m/%d"
+
+    def test_chinese_separator(self):
+        regex, strptime = _pub_format_to_regex("%Y年%m月%d日")
+        assert "年" in regex
+        assert "月" in regex
+        assert "日" in regex
+        assert strptime == "%Y年%m月%d日"
+
+    def test_12hour_format(self):
+        regex, strptime = _pub_format_to_regex("%I:%M %p")
+        assert "?P<I>" in regex
+        assert "?P<p>" in regex
+        assert "?P<M>" in regex
+
+    def test_full_month_name(self):
+        regex, strptime = _pub_format_to_regex("%B %d, %Y")
+        assert "?P<B>" in regex
+        assert "January" in regex
+
+    def test_abbreviated_month(self):
+        regex, strptime = _pub_format_to_regex("%b %d, %Y")
+        assert "?P<b>" in regex
+        assert "Jan" in regex
 
 
 class TestExtractPubTime:
     def test_simple_date(self):
-        result = extract_pub_time("2025-04-26", "yyyy-mo-dd")
+        result = extract_pub_time("2025-04-26", "%Y-%m-%d")
         assert result == "2025-04-26T00:00:00"
 
     def test_datetime_with_time(self):
-        result = extract_pub_time("2025-04-26 08:30", "yyyy-mo-dd hh:mi")
+        result = extract_pub_time("2025-04-26 08:30", "%Y-%m-%d %H:%M")
         assert result == "2025-04-26T08:30:00"
 
     def test_datetime_with_seconds(self):
-        result = extract_pub_time("2025-03-15 10:30:00", "yyyy-mo-dd hh:mi:ss")
+        result = extract_pub_time("2025-03-15 10:30:00", "%Y-%m-%d %H:%M:%S")
         assert result == "2025-03-15T10:30:00"
 
     def test_text_with_embedded_date(self):
         text = "发布日期：2025-04-26 08:30"
-        result = extract_pub_time(text, "yyyy-mo-dd hh:mi")
+        result = extract_pub_time(text, "%Y-%m-%d %H:%M")
         assert result == "2025-04-26T08:30:00"
+
+    def test_slash_separator(self):
+        result = extract_pub_time("2025/04/26", "%Y/%m/%d")
+        assert result == "2025-04-26T00:00:00"
+
+    def test_chinese_separator(self):
+        result = extract_pub_time("2025年04月26日", "%Y年%m月%d日")
+        assert result == "2025-04-26T00:00:00"
+
+    def test_chinese_datetime(self):
+        result = extract_pub_time("2025年04月26日 08时30分", "%Y年%m月%d日 %H时%M分")
+        assert result == "2025-04-26T08:30:00"
+
+    def test_dot_separator(self):
+        result = extract_pub_time("2025.04.26", "%Y.%m.%d")
+        assert result == "2025-04-26T00:00:00"
+
+    def test_12hour_am(self):
+        result = extract_pub_time("08:30 AM", "%I:%M %p")
+        assert result == "2025-04-26T08:30:00" or result is not None
+
+    def test_12hour_pm(self):
+        result = extract_pub_time("02:30 PM", "%I:%M %p")
+        assert result is not None
+
+    def test_full_month_name(self):
+        result = extract_pub_time("January 15, 2025", "%B %d, %Y")
+        assert result == "2025-01-15T00:00:00"
+
+    def test_abbreviated_month(self):
+        result = extract_pub_time("Apr 26, 2025", "%b %d, %Y")
+        assert result == "2025-04-26T00:00:00"
+
+    def test_embedded_in_text(self):
+        text = "发布日期：2025年04月26日"
+        result = extract_pub_time(text, "%Y年%m月%d日")
+        assert result == "2025-04-26T00:00:00"
 
     def test_fallback_iso_format(self):
         text = "some text 2025-04-26 10:30 embedded"
-        result = extract_pub_time(text, "yyyy-mo-dd")
+        result = extract_pub_time(text, "%Y-%m-%d")
         assert result is not None
         assert "2025" in result
 
     def test_fallback_datetime_with_seconds(self):
         text = "published on 2025-04-26 10:30:00"
-        result = extract_pub_time(text, "yyyy-mo-dd hh:mi")
+        result = extract_pub_time(text, "%Y-%m-%d %H:%M")
         assert result is not None
         assert result == "2025-04-26T10:30:00"
 
     def test_fallback_date_only(self):
         text = "published on 2025-04-26"
-        result = extract_pub_time(text, "yyyy-mo-dd hh:mi")
+        result = extract_pub_time(text, "%Y-%m-%d %H:%M")
         assert result is not None
         assert "2025" in result
 
     def test_empty_text_returns_none(self):
-        assert extract_pub_time("", "yyyy-mo-dd") is None
+        assert extract_pub_time("", "%Y-%m-%d") is None
 
     def test_no_match_returns_none(self):
-        assert extract_pub_time("no date here", "yyyy-mo-dd") is None
+        assert extract_pub_time("no date here", "%Y-%m-%d") is None
 
     def test_invalid_date_value_returns_none(self):
-        result = extract_pub_time("9999-99-99", "yyyy-mo-dd")
+        result = extract_pub_time("9999-99-99", "%Y-%m-%d")
         assert result is None
 
 

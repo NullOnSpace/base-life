@@ -73,7 +73,7 @@ sources = [
             "list_selector": "a.article-link",
             "title": "h1",
             "pub": "td:contains('发布日期')",
-            "pub-format": "yyyy-mo-dd hh:mi",
+            "pub-format": "%Y-%m-%d %H:%M",
             "content": "div.article-body",
             "search": ["供水", "停水"],
         },
@@ -85,7 +85,7 @@ sources = [
             "list_selector": "ul.news-list a",
             "title": "h1.title",
             "pub": "span.pub-date",
-            "pub-format": "yyyy-mo-dd",
+            "pub-format": "%Y-%m-%d",
             "content": "div.content",
             "search": ["通知", "重要"],
         },
@@ -113,7 +113,7 @@ source = {
         "list_selector": "a.news-link",
         "title": "h1",
         "pub": "time.pub",
-        "pub-format": "yyyy-mo-dd hh:mi:ss",
+        "pub-format": "%Y-%m-%d %H:%M:%S",
         "content": "div.article-body",
     },
 }
@@ -163,15 +163,19 @@ run("config.toml")
 from base_life.scraper import extract_pub_time
 
 text = "发布日期：2025-04-26 10:30&nbsp;&nbsp;信息来源：xxx"
-iso = extract_pub_time(text, "yyyy-mo-dd hh:mi")
+iso = extract_pub_time(text, "%Y-%m-%d %H:%M")
 # => "2025-04-26T10:30:00"
 
 text2 = "更新时间 2025/04/26"
-iso2 = extract_pub_time(text2, "yyyy/mo/dd")
+iso2 = extract_pub_time(text2, "%Y/%m/%d")
+# => "2025-04-26T00:00:00"
+
+text3 = "发布日期：2025年04月26日"
+iso3 = extract_pub_time(text3, "%Y年%m月%d日")
 # => "2025-04-26T00:00:00"
 ```
 
-`pub-format` 支持的标记：`yyyy`（年）、`mo`（月）、`dd`（日）、`hh`（时）、`mi`（分）、`ss`（秒）。
+`pub-format` 掯持标准 Python strptime 格式字符串（如 `%Y`, `%m`, `%d`, `%H`, `%M`, `%S`, `%I`, `%p`, `%B`, `%b`）。
 
 ## 功能要点
 
@@ -212,7 +216,7 @@ content = "div.article-body"
 		- `list_selector` (string)：列表页中定位链接的 CSS 选择器（例如 `a.article-link`）。
 		- `title` (string)：详情页标题的 CSS 选择器。
 		- `pub` (string)：详情页发布时间的选择器。
-		- `pub-format` (string, 可选)：时间格式，用于解析 `pub` 中的文本，支持标记：`yyyy`, `mo`, `dd`, `hh`, `mi`, `ss`（例如 `"yyyy-mo-dd hh:mi"`）。
+		- `pub-format` (string, 可选)：时间格式，用于解析 `pub` 中的文本，支持标准 Python strptime 格式字符串（如 `%Y-%m-%d %H:%M`、`%Y年%m月%d日`）
 		- `content` (string)：详情页正文选择器，若未命中则回退到整页文本。
 		- `search` (array[string], 可选)：搜索词数组；若提供，`fetch_source()` 会将不匹配任一关键词的 `NewsItem` 标记为 `filtered=true`。
 

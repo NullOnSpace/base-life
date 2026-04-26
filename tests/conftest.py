@@ -23,7 +23,7 @@ SOURCE_CONFIG = {
         "list_selector": "div.list-content ul li a",
         "title": "h1.arti-title",
         "pub": "span.arti-update",
-        "pub-format": "yyyy-mo-dd",
+        "pub-format": "%Y-%m-%d",
         "content": "div.arti-articlecontent",
     },
 }
@@ -35,7 +35,7 @@ SOURCE_CONFIG_WITH_SEARCH = {
         "list_selector": "div.list-content ul li a",
         "title": "h1.arti-title",
         "pub": "span.arti-update",
-        "pub-format": "yyyy-mo-dd hh:mi:ss",
+        "pub-format": "%Y-%m-%d %H:%M:%S",
         "content": "div.arti-articlecontent",
         "search": ["water", "supply"],
     },
@@ -48,7 +48,7 @@ SOURCE_CONFIG_CONTAINS = {
         "list_selector": "table.topds table td.content table td > a",
         "title": "h1 > strong",
         "pub": 'div[align="center"]:contains("发布日期")',
-        "pub-format": "yyyy-mo-dd hh:mi",
+        "pub-format": "%Y-%m-%d %H:%M",
         "content": "#zoom",
     },
 }

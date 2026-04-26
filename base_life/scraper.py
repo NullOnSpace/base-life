@@ -93,38 +93,64 @@ def _select_with_contains(soup: BeautifulSoup, selector: str) -> list[BeautifulS
     return soup.select(selector)
 
 
+_STRPTIME_TO_REGEX: dict[str, str] = {
+    "%Y": r"(?P<Y>\d{4})",
+    "%y": r"(?P<y>\d{2})",
+    "%m": r"(?P<m>\d{1,2})",
+    "%d": r"(?P<d>\d{1,2})",
+    "%H": r"(?P<H>\d{1,2})",
+    "%I": r"(?P<I>\d{1,2})",
+    "%M": r"(?P<M>\d{1,2})",
+    "%S": r"(?P<S>\d{1,2})",
+    "%p": r"(?P<p>AM|PM|am|pm|A\.M\.|P\.M\.|a\.m\.|p\.m\.)",
+    "%B": (
+        r"(?P<B>January|February|March|April|May|June|"
+        r"July|August|September|October|November|December)"
+    ),
+    "%b": r"(?P<b>Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)",
+}
+
 def _pub_format_to_regex(fmt: str) -> tuple[str, str]:
     """Convert a ``pub-format`` string into a regex and strptime format.
 
-    Supported tokens (order matters — longer/more-specific first):
+    Supports standard Python :mod:`datetime` strptime directives.
+    Directives are turned into regex named-capture groups; all other
+    characters are treated as literal separators and escaped.
 
-    ======  ========  ===========
-    Token   Regex     strptime
-    ======  ========  ===========
-    yyyy    \\d{4}    %Y   (year)
-    mo      \\d{1,2}  %m   (month)
-    dd      \\d{1,2}  %d   (day)
-    hh      \\d{1,2}  %H   (hour)
-    mi      \\d{1,2}  %M   (minute)
-    ss      \\d{1,2}  %S   (second)
-    ======  ========  ===========
+    Supported directives:
+
+    ========  ==================  ===========
+    Directive Meaning             Regex
+    ========  ==================  ===========
+    %Y        4-digit year        \\d{4}
+    %y        2-digit year        \\d{2}
+    %m        month (01–12)       \\d{1,2}
+    %d        day (01–31)         \\d{1,2}
+    %H        hour 24h (00–23)    \\d{1,2}
+    %I        hour 12h (01–12)    \\d{1,2}
+    %M        minute (00–59)      \\d{1,2}
+    %S        second (00–60)      \\d{1,2}
+    %p        AM / PM             AM|PM…
+    %B        full month name     January|…
+    %b        abbreviated month   Jan|…
+    ========  ==================  ===========
     """
-    token_map: list[tuple[str, str, str]] = [
-        ("yyyy", r"(?P<Y>\d{4})", "%Y"),
-        ("mo", r"(?P<m>\d{1,2})", "%m"),
-        ("dd", r"(?P<d>\d{1,2})", "%d"),
-        ("hh", r"(?P<H>\d{1,2})", "%H"),
-        ("mi", r"(?P<M>\d{1,2})", "%M"),
-        ("ss", r"(?P<S>\d{1,2})", "%S"),
-    ]
-    regex = re.escape(fmt)
-    strptime = fmt
+    regex_parts: list[str] = []
+    i = 0
+    while i < len(fmt):
+        if fmt[i] == "%" and i + 1 < len(fmt):
+            directive = fmt[i : i + 2]
+            if directive in _STRPTIME_TO_REGEX:
+                regex_parts.append(_STRPTIME_TO_REGEX[directive])
+            else:
+                regex_parts.append(re.escape(directive))
+            i += 2
+        else:
+            regex_parts.append(re.escape(fmt[i]))
+            i += 1
 
-    for token, token_regex, token_strp in token_map:
-        regex = regex.replace(re.escape(token), token_regex)
-        strptime = strptime.replace(token, token_strp)
-
-    return regex, strptime
+    regex = "".join(regex_parts)
+    return regex, fmt
 
 
 def extract_pub_time(text: str, pub_format: str) -> str | None:
