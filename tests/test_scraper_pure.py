@@ -4,6 +4,7 @@ from bs4 import BeautifulSoup
 
 from base_life.scraper import (
     NewsItem,
+    _apply_search_filter,
     _extract_links,
     _item_search_text,
     _matches_search,
@@ -12,7 +13,6 @@ from base_life.scraper import (
     _select_with_contains,
     default_headers,
     extract_pub_time,
-    filter_by_search,
     unfiltered_items,
 )
 from tests.conftest import (
@@ -66,6 +66,13 @@ class TestSelectWithContains:
         soup = BeautifulSoup(html, "lxml")
         result = _select_with_contains(soup, "p:contains('missing')")
         assert len(result) == 0
+
+    def test_contains_with_nested_parentheses(self):
+        html = "<div><p>通知(重要)发布日期</p><p>其他</p></div>"
+        soup = BeautifulSoup(html, "lxml")
+        result = _select_with_contains(soup, "p:contains('通知')")
+        assert len(result) == 1
+        assert "通知" in result[0].get_text()
 
     def test_no_contains_delegates_to_select(self):
         html = "<div><p class='a'>x</p><p class='b'>y</p></div>"
@@ -134,6 +141,12 @@ class TestExtractPubTime:
         result = extract_pub_time(text, "yyyy-mo-dd")
         assert result is not None
         assert "2025" in result
+
+    def test_fallback_datetime_with_seconds(self):
+        text = "published on 2025-04-26 10:30:00"
+        result = extract_pub_time(text, "yyyy-mo-dd hh:mi")
+        assert result is not None
+        assert result == "2025-04-26T10:30:00"
 
     def test_fallback_date_only(self):
         text = "published on 2025-04-26"
@@ -280,61 +293,87 @@ class TestNewsItem:
 
     def test_defaults(self):
         item = NewsItem()
-        assert item.source is None
+        assert item.source == ""
+        assert item.url == ""
         assert item.filtered is False
         assert item.filter_reason is None
 
     def test_dataclass_equality(self):
-        a = NewsItem(source="x", title="t")
-        b = NewsItem(source="x", title="t")
+        a = NewsItem(source="x", url="http://a", title="t")
+        b = NewsItem(source="x", url="http://a", title="t")
         assert a == b
 
 
-class TestFilterBySearch:
+class TestApplySearchFilter:
     def test_match_terms(self):
         items = [
-            {"title": "Water Supply Notice", "content": "Maintenance scheduled"},
-            {"title": "Road Repair Update", "content": "Traffic detour posted"},
+            NewsItem(
+                source="s",
+                url="u1",
+                title="Water Supply Notice",
+                content="Maintenance scheduled",
+            ),
+            NewsItem(
+                source="s",
+                url="u2",
+                title="Road Repair Update",
+                content="Traffic detour posted",
+            ),
         ]
-        result = filter_by_search(items, ["water"])
-        assert len(result) == 1
-        assert result[0]["title"] == "Water Supply Notice"
-
-    def test_no_terms_returns_all(self):
-        items = [{"title": "A"}, {"title": "B"}]
-        result = filter_by_search(items, [])
-        assert len(result) == 2
+        result = _apply_search_filter(items, ["water"])
+        matched = [it for it in result if not it.filtered]
+        assert len(matched) == 1
+        assert matched[0].title == "Water Supply Notice"
 
     def test_case_insensitive(self):
-        items = [{"title": "WATER NOTICE", "content": None}]
-        result = filter_by_search(items, ["water"])
-        assert len(result) == 1
+        items = [NewsItem(source="s", url="u", title="WATER NOTICE", content=None)]
+        result = _apply_search_filter(items, ["water"])
+        matched = [it for it in result if not it.filtered]
+        assert len(matched) == 1
 
     def test_content_search(self):
-        items = [{"title": "Notice", "content": "water supply info"}]
-        result = filter_by_search(items, ["supply"])
-        assert len(result) == 1
+        items = [
+            NewsItem(source="s", url="u", title="Notice", content="water supply info")
+        ]
+        result = _apply_search_filter(items, ["supply"])
+        matched = [it for it in result if not it.filtered]
+        assert len(matched) == 1
+
+    def test_no_terms_marks_all_unfiltered(self):
+        items = [
+            NewsItem(source="s", url="u1", title="A"),
+            NewsItem(source="s", url="u2", title="B"),
+        ]
+        result = _apply_search_filter(items, [])
+        assert all(it.filtered is False for it in result)
 
 
 class TestUnfilteredItems:
     def test_returns_only_unfiltered(self):
         items = [
-            NewsItem(title="A", filtered=False),
-            NewsItem(title="B", filtered=True, filter_reason="no match"),
-            NewsItem(title="C", filtered=False),
+            NewsItem(source="s", url="u1", title="A", filtered=False),
+            NewsItem(
+                source="s", url="u2", title="B", filtered=True, filter_reason="no match"
+            ),
+            NewsItem(source="s", url="u3", title="C", filtered=False),
         ]
         result = unfiltered_items(items)
         assert len(result) == 2
         assert all(it.filtered is False for it in result)
 
     def test_all_unfiltered(self):
-        items = [NewsItem(title="A"), NewsItem(title="B")]
+        items = [
+            NewsItem(source="s", url="u1", title="A"),
+            NewsItem(source="s", url="u2", title="B"),
+        ]
         result = unfiltered_items(items)
         assert len(result) == 2
 
     def test_all_filtered(self):
         items = [
-            NewsItem(title="A", filtered=True, filter_reason="no match"),
+            NewsItem(
+                source="s", url="u1", title="A", filtered=True, filter_reason="no match"
+            ),
         ]
         result = unfiltered_items(items)
         assert len(result) == 0

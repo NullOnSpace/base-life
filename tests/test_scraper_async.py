@@ -9,6 +9,7 @@ from base_life.scraper import (
     _async_fetch_url,
     _fetch_detail,
     _SourceContext,
+    fetch_all_sources,
     fetch_source,
     parse_source,
 )
@@ -124,6 +125,10 @@ class TestFetchDetail:
 
 
 class TestParseSource:
+    async def test_source_missing_url_returns_empty(self):
+        items = await parse_source({"name": "no-url"})
+        assert items == []
+
     async def test_full_parse_source(self):
         detail_1_url = BASE_URL + "/news/detail-1.html"
         detail_2_url = BASE_URL + "/news/detail-2.html"
@@ -157,14 +162,14 @@ class TestParseSource:
 
 
 class TestFetchSource:
-    def test_fetch_source_with_search_terms(self):
+    async def test_fetch_source_with_search_terms(self):
         detail_1_url = BASE_URL + "/news/detail-1.html"
         detail_2_url = BASE_URL + "/news/detail-2.html"
         with aioresponses() as m:
             m.get(BASE_URL, body=LIST_HTML)
             m.get(detail_1_url, body=DETAIL_1_HTML)
             m.get(detail_2_url, body=DETAIL_2_HTML)
-            items = fetch_source(
+            items = await fetch_source(
                 SOURCE_CONFIG_WITH_SEARCH,
                 search_terms=["water", "supply"],
             )
@@ -177,14 +182,30 @@ class TestFetchSource:
         assert len(filtered) == 1
         assert filtered[0].filter_reason == "no match"
 
-    def test_fetch_source_no_search_terms(self):
+    async def test_fetch_source_no_search_terms(self):
         detail_1_url = BASE_URL + "/news/detail-1.html"
         detail_2_url = BASE_URL + "/news/detail-2.html"
         with aioresponses() as m:
             m.get(BASE_URL, body=LIST_HTML)
             m.get(detail_1_url, body=DETAIL_1_HTML)
             m.get(detail_2_url, body=DETAIL_2_HTML)
-            items = fetch_source(SOURCE_CONFIG)
+            items = await fetch_source(SOURCE_CONFIG)
 
         assert len(items) == 2
         assert all(it.filtered is False for it in items)
+
+
+class TestFetchAllSources:
+    async def test_multiple_sources(self):
+        detail_1_url = BASE_URL + "/news/detail-1.html"
+        detail_2_url = BASE_URL + "/news/detail-2.html"
+        with aioresponses() as m:
+            m.get(BASE_URL, body=LIST_HTML)
+            m.get(detail_1_url, body=DETAIL_1_HTML)
+            m.get(detail_2_url, body=DETAIL_2_HTML)
+            items = await fetch_all_sources([SOURCE_CONFIG])
+        assert len(items) == 2
+
+    async def test_empty_sources_list(self):
+        items = await fetch_all_sources([])
+        assert items == []

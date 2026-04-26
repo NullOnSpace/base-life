@@ -45,21 +45,24 @@ def setup_logging(level: str | None = None) -> None:
         root.setLevel(lvl)
 
 
+_DEFAULT_HEADERS: dict[str, str] = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/115.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+    "Connection": "keep-alive",
+}
+
+
 def default_headers() -> dict[str, str]:
-    """Return a set of default headers that resemble a real browser.
+    """Return a copy of the default browser-like headers.
 
     Callers may update/override these per-source via ``source["headers"]``.
     """
-    return {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/115.0.0.0 Safari/537.36"
-        ),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7",
-        "Connection": "keep-alive",
-    }
+    return dict(_DEFAULT_HEADERS)
 
 
 def _merge_headers(source: dict[str, Any]) -> dict[str, str]:
@@ -76,10 +79,14 @@ def _select_with_contains(soup: BeautifulSoup, selector: str) -> list[BeautifulS
     When ``:contains("text")`` is present we emulate it by filtering
     candidate elements by text content. Otherwise delegate to
     ``soup.select``.
+
+    Handles quoted text inside ``:contains()`` (single or double quotes)
+    and nested parentheses in the text portion.
     """
-    if ":contains(" in selector:
-        prefix, rest = selector.split(":contains(", 1)
-        contain_text = rest.rsplit(")", 1)[0].strip('"').strip("'")
+    m = re.search(r':contains\(([\'"])(.*?)\1\)', selector)
+    if m:
+        contain_text = m.group(2)
+        prefix = selector[: m.start()]
         candidates = soup.select(prefix) if prefix.strip() else soup.find_all(True)
         return [el for el in candidates if contain_text in el.get_text()]
 
@@ -132,7 +139,7 @@ def extract_pub_time(text: str, pub_format: str) -> str | None:
     m = re.search(regex, text)
     if not m:
         for pattern in [
-            r"(\d{4}[-/.]\d{1,2}[-/.]\d{1,2} \d{1,2}:\d{2}(?:\d{2})?)",
+            r"(\d{4}[-/.]\d{1,2}[-/.]\d{1,2} \d{1,2}:\d{2}(?::\d{2})?)",
             r"(\d{4}[-/.]\d{1,2}[-/.]\d{1,2})",
         ]:
             m2 = re.search(pattern, text)
@@ -165,7 +172,7 @@ async def _async_fetch_url(
     for this specific request only.
     """
     try:
-        hdrs = headers or default_headers()
+        hdrs = default_headers() if headers is None else headers
         logger.debug("HTTP GET %s", url)
         kwargs: dict[str, Any] = {"headers": hdrs}
         if per_request_timeout is not None:
@@ -212,8 +219,8 @@ def _extract_links(
 
 @dataclass
 class NewsItem:
-    source: str | None = None
-    url: str | None = None
+    source: str = ""
+    url: str = ""
     title: str | None = None
     pub: str | None = None
     content: str | None = None
@@ -325,6 +332,8 @@ def _apply_search_filter(
     ``filter_reason="no match"``.
     """
     lowered_terms = [t.lower() for t in search_terms]
+    if not lowered_terms:
+        return items
     matched = 0
     for it in items:
         text = _item_search_text(it.title, it.content)
@@ -349,6 +358,9 @@ async def parse_source(
     created and closed within this call.
     """
     base_url = source.get("url")
+    if not base_url:
+        logger.error("Source '%s' missing required 'url' field", source.get("name"))
+        return []
     selectors = source.get("selectors", {})
     list_sel = selectors.get("list_selector")
 
@@ -401,7 +413,7 @@ async def parse_source(
             await session.close()
 
 
-def fetch_source(
+async def fetch_source(
     source: dict[str, Any],
     search_terms: list[str] | None = None,
     session: aiohttp.ClientSession | None = None,
@@ -414,10 +426,7 @@ def fetch_source(
     When ``session`` is provided, it is reused across requests (enabling
     connection pooling). When ``None``, a new session is created per call.
     """
-    if session is not None:
-        items = asyncio.run(parse_source(source, session=session), debug=False)
-    else:
-        items = asyncio.run(parse_source(source))
+    items = await parse_source(source, session=session)
 
     if search_terms:
         _apply_search_filter(items, search_terms)
@@ -455,25 +464,3 @@ async def fetch_all_sources(
 def unfiltered_items(items: list[NewsItem]) -> list[NewsItem]:
     """Return only items that are not marked as filtered."""
     return [it for it in items if not it.filtered]
-
-
-def filter_by_search(
-    items: list[dict[str, Any]], search_terms: list[str]
-) -> list[dict[str, Any]]:
-    """Return only items that contain any of the ``search_terms``.
-
-    Matching is case-insensitive and performs simple substring matching
-    on title and content fields.
-    """
-    if not search_terms:
-        return items
-
-    lowered_terms = [t.lower() for t in search_terms]
-    return [
-        it
-        for it in items
-        if _matches_search(
-            _item_search_text(it.get("title"), it.get("content")),
-            lowered_terms,
-        )
-    ]
